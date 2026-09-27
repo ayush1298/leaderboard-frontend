@@ -14,7 +14,8 @@
 <div class="wrap">
 	<p class="muted">
 		Mean(Task) score vs. number of active parameters (log scale). Bubble size scales with embedding
-		dimension; color shows max-token length. Hover a point for the model name.
+		dimension; color shows max-token length. The green line traces the Pareto frontier: models that
+		no model of equal or smaller size outscores. Hover a point for the model name.
 	</p>
 	<PlotlyChart data={spec.data} layout={spec.layout} height={520} />
 </div>

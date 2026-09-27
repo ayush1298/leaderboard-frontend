@@ -92,13 +92,30 @@ export function performanceSizePlot(
 		}
 	};
 
+	// Pareto frontier from `applyFilters` (see `$lib/pareto`), step-after
+	// style: each frontier model holds its score until a larger one beats it.
+	// Drawn under the markers and hover-skipped so it never steals a point's tip.
+	const frontierIdx = rows
+		.map((_, i) => i)
+		.filter((i) => summary.paretoModels?.has(rows[i].model.name))
+		.sort((a, b) => x[a] - x[b]);
+	const frontierLine: Data = {
+		x: frontierIdx.map((i) => x[i]),
+		y: frontierIdx.map((i) => y[i]),
+		mode: 'lines',
+		type: 'scatter',
+		line: { color: '#1f7a1f', width: 2, shape: 'hv' },
+		hoverinfo: 'skip',
+		name: 'Pareto frontier'
+	};
+
 	const layout: Partial<Layout> = {
 		xaxis: { title: { text: 'Number of Active Parameters' }, type: 'log' },
 		yaxis: { title: { text: 'Mean (Task) score' } },
 		showlegend: false
 	};
 
-	return { data: [trace], layout };
+	return { data: [frontierLine, trace], layout };
 }
 
 export function performanceOverTimePlot(

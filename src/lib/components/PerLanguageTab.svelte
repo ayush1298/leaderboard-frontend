@@ -242,7 +242,7 @@
 		</table>
 	</div>
 
-	<ModelHoverPortal bind:this={tipPortal} />
+	<ModelHoverPortal bind:this={tipPortal} paretoModels={summary.paretoModels} />
 </div>
 
 <style>

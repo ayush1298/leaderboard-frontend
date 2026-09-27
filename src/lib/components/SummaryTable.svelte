@@ -13,7 +13,7 @@
 		},
 		model: {
 			title: 'Model',
-			text: 'Missing results — the model may not have been run on the tasks in the benchmark. We only display models that have been run on at least one task. To submit results, see the [submitting results guide](https://embeddings-benchmark.github.io/mteb/contributing/submitting_results/).'
+			text: 'Missing results — the model may not have been run on the tasks in the benchmark. We only display models that have been run on at least one task. To submit results, see the [submitting results guide](https://embeddings-benchmark.github.io/mteb/contributing/submitting_results/). A Pareto tag marks models on the size vs. Mean (Task) frontier of the current view: no other model scores higher with the same or fewer active parameters, or scores the same with fewer.'
 		},
 		zeroShot: {
 			title: 'Zero-shot %',
@@ -759,6 +759,9 @@
 							onfocusout={hideModelTip}
 						>
 							<ModelCellName model={row.model} />
+							{#if summary.paretoModels?.has(row.model.name)}
+								<span class="pareto-tag">Pareto</span>
+							{/if}
 						</th>
 						<td class="tbl-num param-cell" data-model-type={row.model.modelType}>
 							{fmtParamsValue(row.totalParamsB)}{#if fmtParamsUnit(row.totalParamsB)}<span
@@ -864,7 +867,7 @@
 	<!-- Model-cell tooltip is the shared `ModelHoverPortal` so all three
 	     leaderboard tables (Summary / PerTask / PerLanguage) render
 	     byte-identical bubbles. -->
-	<ModelHoverPortal bind:this={modelTipPortal} />
+	<ModelHoverPortal bind:this={modelTipPortal} paretoModels={summary.paretoModels} />
 
 	<!-- Per-cell openness breakdown — same card-style meter + dimensions. -->
 	<OpennessHoverPortal bind:this={opennessTipPortal} />
@@ -896,6 +899,24 @@
 	}
 	.has-tip :global(.tbl-model-link:hover) {
 		text-decoration-color: var(--link);
+	}
+	/* Inline after the model name so it wraps with long names instead of
+	   widening the fixed-width sticky column. Green echoes the frontier
+	   line on the Performance per Model Size chart. */
+	.pareto-tag {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 0 6px;
+		border-radius: 999px;
+		background: var(--tint-green);
+		color: var(--tint-green-fg);
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		line-height: 16px;
+		text-transform: uppercase;
+		vertical-align: 1px;
+		white-space: nowrap;
 	}
 	.sort-btn {
 		all: unset;

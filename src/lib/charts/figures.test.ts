@@ -66,7 +66,7 @@ describe('performanceSizePlot', () => {
 		const b = row(2, model('b', { activeParamsB: null }), 0.5); // dropped: unknown params
 		const c = row(3, model('c', { activeParamsB: 2 }), null); // dropped: null mean
 		const spec = performanceSizePlot(summary([a, b, c]));
-		const trace = spec.data[0] as { x: number[]; y: number[] };
+		const trace = spec.data[1] as { x: number[]; y: number[] };
 		expect(trace.x).toEqual([1e9]);
 		expect(trace.y).toEqual([70]);
 	});
@@ -78,7 +78,7 @@ describe('performanceSizePlot', () => {
 		// clamp to 1 rather than dropping the model from the chart (#5079).
 		const a = row(1, model('a', { activeParamsB: 0 }), 0.6);
 		const spec = performanceSizePlot(summary([a]));
-		const trace = spec.data[0] as { x: number[]; y: number[] };
+		const trace = spec.data[1] as { x: number[]; y: number[] };
 		expect(trace.x).toEqual([1]);
 		expect(trace.y).toEqual([60]);
 	});
@@ -87,7 +87,7 @@ describe('performanceSizePlot', () => {
 		const known = row(1, model('known', { totalParamsB: 1.5 }), 0.7);
 		const unknown = row(2, model('unknown', { totalParamsB: null }), 0.6);
 		const spec = performanceSizePlot(summary([known, unknown]));
-		const trace = spec.data[0] as {
+		const trace = spec.data[1] as {
 			customdata: Array<Array<string | number>>;
 			hovertemplate: string;
 		};
@@ -102,9 +102,34 @@ describe('performanceSizePlot', () => {
 		const a = row(1, model('a', { activeParamsB: 1 }), 0.7);
 		const b = row(2, model('b', { activeParamsB: 1 }), 0.6);
 		const spec = performanceSizePlot(summary([a, b]), new Set(['b']));
-		const trace = spec.data[0] as { marker: { line: { width: number[] } } };
+		const trace = spec.data[1] as { marker: { line: { width: number[] } } };
 		// Order matches the filtered rows: a (not pinned), b (pinned).
 		expect(trace.marker.line.width).toEqual([0.5, 3]);
+	});
+
+	it('draws the Pareto frontier under the markers, sorted by size', () => {
+		const big = row(1, model('big', { activeParamsB: 7 }), 0.7);
+		const small = row(2, model('small', { activeParamsB: 0.1 }), 0.5);
+		const off = row(3, model('off', { activeParamsB: 1 }), 0.4);
+		const spec = performanceSizePlot({
+			...summary([big, small, off]),
+			paretoModels: new Set(['big', 'small'])
+		});
+		const frontier = spec.data[0] as {
+			x: number[];
+			y: number[];
+			line: { shape: string };
+			hoverinfo: string;
+		};
+		expect(frontier.x).toEqual([0.1e9, 7e9]);
+		expect(frontier.y).toEqual([50, 70]);
+		expect(frontier.line.shape).toBe('hv');
+		expect(frontier.hoverinfo).toBe('skip');
+	});
+
+	it('emits an empty frontier when the summary carries none', () => {
+		const spec = performanceSizePlot(summary([row(1, model('a'), 0.5)]));
+		expect((spec.data[0] as { x: number[] }).x).toEqual([]);
 	});
 
 	it('uses a log-scale x-axis', () => {
