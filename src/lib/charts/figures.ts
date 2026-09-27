@@ -95,6 +95,8 @@ export function performanceSizePlot(
 	// Pareto frontier from `applyFilters` (see `$lib/pareto`), step-after
 	// style: each frontier model holds its score until a larger one beats it.
 	// Drawn under the markers and hover-skipped so it never steals a point's tip.
+	// Blue, not the time chart's frontier green: it has to stand out against
+	// the Greens colorscale and the orange pin ring in both themes.
 	const frontierIdx = rows
 		.map((_, i) => i)
 		.filter((i) => summary.paretoModels?.has(rows[i].model.name))
@@ -104,7 +106,7 @@ export function performanceSizePlot(
 		y: frontierIdx.map((i) => y[i]),
 		mode: 'lines',
 		type: 'scatter',
-		line: { color: '#1f7a1f', width: 2, shape: 'hv' },
+		line: { color: '#4f8cff', width: 2.5, shape: 'hv' },
 		hoverinfo: 'skip',
 		name: 'Pareto frontier'
 	};

@@ -901,8 +901,8 @@
 		text-decoration-color: var(--link);
 	}
 	/* Inline after the model name so it wraps with long names instead of
-	   widening the fixed-width sticky column. Green echoes the frontier
-	   line on the Performance per Model Size chart. */
+	   widening the fixed-width sticky column. Green, not blue, so it doesn't
+	   blend into the dense-model name tint beside it. */
 	.pareto-tag {
 		display: inline-block;
 		margin-left: 6px;
