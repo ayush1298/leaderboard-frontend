@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BenchmarkSummary, ModelMeta, SummaryRow, TaskMeta } from '$lib/types';
-import { performanceOverTimePlot, performanceSizePlot, radarPlot } from './figures';
+import { FRONTIER_COLOR, performanceOverTimePlot, performanceSizePlot, radarPlot } from './figures';
 
 function model(name: string, overrides: Partial<ModelMeta> = {}): ModelMeta {
 	return {
@@ -107,7 +107,7 @@ describe('performanceSizePlot', () => {
 		expect(trace.marker.line.width).toEqual([0.5, 3]);
 	});
 
-	it('draws the Pareto frontier under the markers, sorted by size', () => {
+	it('draws the Pareto frontier above the markers, sorted by size', () => {
 		const big = row(1, model('big', { activeParamsB: 7 }), 0.7);
 		const small = row(2, model('small', { activeParamsB: 0.1 }), 0.5);
 		const off = row(3, model('off', { activeParamsB: 1 }), 0.4);
@@ -115,21 +115,63 @@ describe('performanceSizePlot', () => {
 			...summary([big, small, off]),
 			paretoModels: new Set(['big', 'small'])
 		});
-		const frontier = spec.data[0] as {
-			x: number[];
-			y: number[];
-			line: { shape: string };
-			hoverinfo: string;
-		};
+		type Line = { x: number[]; y: number[]; line: { shape: string }; hoverinfo: string };
+		const frontier = spec.data[0] as Line & { zorder: number };
+		const glow = spec.data.slice(2) as (Line & { zorder: number })[];
 		expect(frontier.x).toEqual([0.1e9, 7e9]);
 		expect(frontier.y).toEqual([50, 70]);
 		expect(frontier.line.shape).toBe('hv');
 		expect(frontier.hoverinfo).toBe('skip');
+		// Dense clusters would bury the line, so it sits over the markers
+		// (default zorder 0), on top of its own glow.
+		expect(glow).toHaveLength(2);
+		for (const g of glow) {
+			expect(g.x).toEqual(frontier.x);
+			expect(g.hoverinfo).toBe('skip');
+			expect(frontier.zorder).toBeGreaterThan(g.zorder);
+			expect(g.zorder).toBeGreaterThan(0);
+		}
+	});
+
+	it('rings frontier markers in the frontier color, pinned rings winning', () => {
+		const a = row(1, model('a'), 0.7);
+		const b = row(2, model('b'), 0.6);
+		const c = row(3, model('c'), 0.5);
+		const spec = performanceSizePlot(
+			{ ...summary([a, b, c]), paretoModels: new Set(['a', 'b']) },
+			new Set(['b'])
+		);
+		const marker = (spec.data[1] as { marker: { line: { width: number[]; color: string[] } } })
+			.marker;
+		expect(marker.line.width).toEqual([1.5, 3, 0.5]);
+		expect(marker.line.color[0]).toBe(FRONTIER_COLOR);
+		expect(marker.line.color[1]).toBe('#ff6f3c');
 	});
 
 	it('emits an empty frontier when the summary carries none', () => {
 		const spec = performanceSizePlot(summary([row(1, model('a'), 0.5)]));
 		expect((spec.data[0] as { x: number[] }).x).toEqual([]);
+	});
+
+	it('marks the best proprietary model with a dashed line, even without a size', () => {
+		const open = row(1, model('open'), 0.8);
+		// Closed models usually publish no param count — they still set the line.
+		const best = row(2, model('closed-best', { openWeights: false, activeParamsB: null }), 0.75);
+		const worse = row(3, model('closed-worse', { openWeights: false }), 0.6);
+		const unscored = row(4, model('closed-partial', { openWeights: false }), null);
+		const spec = performanceSizePlot(summary([open, best, worse, unscored]));
+		const shapes = spec.layout.shapes as { y0: number; line: { dash: string } }[];
+		const notes = spec.layout.annotations as { text: string }[];
+		expect(shapes).toHaveLength(1);
+		expect(shapes[0].y0).toBe(75);
+		expect(shapes[0].line.dash).toBe('dash');
+		expect(notes[0].text).toBe('Best proprietary: closed-best (75.00)');
+	});
+
+	it('omits the proprietary line when every model is open', () => {
+		const spec = performanceSizePlot(summary([row(1, model('open'), 0.8)]));
+		expect(spec.layout.shapes).toEqual([]);
+		expect(spec.layout.annotations).toEqual([]);
 	});
 
 	it('uses a log-scale x-axis', () => {
