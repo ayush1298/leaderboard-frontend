@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelMeta, SummaryRow } from '$lib/types';
-import { paretoFrontier, paretoStatus } from './pareto';
+import { datedRows, paretoFrontier, paretoStatus, recordSetters } from './pareto';
 
 function row(name: string, activeParamsB: number | null, meanTask: number | null): SummaryRow {
 	const model: ModelMeta = {
@@ -89,5 +89,32 @@ describe('paretoStatus', () => {
 		const frontier = new Set(['a']);
 		expect(paretoStatus(row('a', 1, 0.5), frontier)).toBe(true);
 		expect(paretoStatus(row('b', 1, 0.4), frontier)).toBe(false);
+	});
+});
+
+describe('datedRows + recordSetters', () => {
+	const dated = (name: string, releaseDate: string | undefined, meanTask: number | null) => {
+		const r = row(name, 1, meanTask);
+		return { ...r, model: { ...r.model, releaseDate } };
+	};
+
+	it('keeps rows with a date and a mean, oldest first', () => {
+		const rows = [
+			dated('late', '2025-01-01', 0.7),
+			dated('undated', undefined, 0.9),
+			dated('partial', '2024-06-01', null),
+			dated('early', '2024-01-01', 0.6)
+		];
+		expect(datedRows(rows).map((r) => r.model.name)).toEqual(['early', 'late']);
+	});
+
+	it('returns only the models that beat every earlier release', () => {
+		const rows = datedRows([
+			dated('a', '2024-01-01', 0.6),
+			dated('weaker', '2024-03-01', 0.5),
+			dated('tie', '2024-06-01', 0.6), // matches, doesn't beat
+			dated('b', '2025-01-01', 0.7)
+		]);
+		expect(recordSetters(rows).map((r) => r.model.name)).toEqual(['a', 'b']);
 	});
 });

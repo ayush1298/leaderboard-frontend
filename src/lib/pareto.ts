@@ -40,6 +40,37 @@ export function isParetoEligible(row: SummaryRow): row is EligibleRow {
 	return row.activeParamsB != null && row.meanTask != null;
 }
 
+export type DatedRow = SummaryRow & {
+	meanTask: number;
+	model: SummaryRow['model'] & { releaseDate: string };
+};
+
+/** Rows with both a release date and a Mean (Task), oldest first. */
+export function datedRows(rows: readonly SummaryRow[]): DatedRow[] {
+	return rows
+		.filter((r): r is DatedRow => !!r.model.releaseDate && r.meanTask != null)
+		.sort(
+			(a, b) => new Date(a.model.releaseDate).getTime() - new Date(b.model.releaseDate).getTime()
+		);
+}
+
+/**
+ * The over-time frontier's corners: models that beat every earlier release on
+ * Mean (Task) — the time-axis counterpart of `paretoFrontier`. Takes
+ * `datedRows` output (oldest first).
+ */
+export function recordSetters(dated: readonly DatedRow[]): DatedRow[] {
+	const out: DatedRow[] = [];
+	let best = -Infinity;
+	for (const r of dated) {
+		if (r.meanTask > best) {
+			out.push(r);
+			best = r.meanTask;
+		}
+	}
+	return out;
+}
+
 /** `null` when the row lacks the size or score needed to place it. */
 export function paretoStatus(
 	row: SummaryRow,

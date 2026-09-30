@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { BenchmarkSummary, ModelMeta, SummaryRow, TaskMeta } from '$lib/types';
-import { FRONTIER_COLOR, performanceOverTimePlot, performanceSizePlot, radarPlot } from './figures';
+import {
+	SIZE_FRONTIER_COLOR,
+	performanceOverTimePlot,
+	performanceSizePlot,
+	radarPlot
+} from './figures';
 
 function model(name: string, overrides: Partial<ModelMeta> = {}): ModelMeta {
 	return {
@@ -115,22 +120,26 @@ describe('performanceSizePlot', () => {
 			...summary([big, small, off]),
 			paretoModels: new Set(['big', 'small'])
 		});
-		type Line = { x: number[]; y: number[]; line: { shape: string }; hoverinfo: string };
-		const frontier = spec.data[0] as Line & { zorder: number };
-		const glow = spec.data.slice(2) as (Line & { zorder: number })[];
+		const frontier = spec.data[0] as {
+			x: number[];
+			y: number[];
+			line: { color: string; width: number; shape: string };
+			hoverinfo: string;
+			zorder: number;
+		};
+		expect(spec.data).toHaveLength(2);
 		expect(frontier.x).toEqual([0.1e9, 7e9]);
 		expect(frontier.y).toEqual([50, 70]);
-		expect(frontier.line.shape).toBe('hv');
+		// Plain step line, like the time chart's, in purple.
+		expect(frontier.line).toEqual({ color: SIZE_FRONTIER_COLOR, width: 2, shape: 'hv' });
 		expect(frontier.hoverinfo).toBe('skip');
-		// Dense clusters would bury the line, so it sits over the markers
-		// (default zorder 0), on top of its own glow.
-		expect(glow).toHaveLength(2);
-		for (const g of glow) {
-			expect(g.x).toEqual(frontier.x);
-			expect(g.hoverinfo).toBe('skip');
-			expect(frontier.zorder).toBeGreaterThan(g.zorder);
-			expect(g.zorder).toBeGreaterThan(0);
-		}
+		// Dense clusters would bury the line, so it sits over the markers (default zorder 0).
+		expect(frontier.zorder).toBeGreaterThan(0);
+	});
+
+	it('colors bubbles by max tokens on a blue scale', () => {
+		const spec = performanceSizePlot(summary([row(1, model('a'), 0.5)]));
+		expect((spec.data[1] as { marker: { colorscale: string } }).marker.colorscale).toBe('Blues');
 	});
 
 	it('rings frontier markers in the frontier color, pinned rings winning', () => {
@@ -144,7 +153,7 @@ describe('performanceSizePlot', () => {
 		const marker = (spec.data[1] as { marker: { line: { width: number[]; color: string[] } } })
 			.marker;
 		expect(marker.line.width).toEqual([1.5, 3, 0.5]);
-		expect(marker.line.color[0]).toBe(FRONTIER_COLOR);
+		expect(marker.line.color[0]).toBe(SIZE_FRONTIER_COLOR);
 		expect(marker.line.color[1]).toBe('#ff6f3c');
 	});
 

@@ -1,5 +1,6 @@
 import type { Data, Layout } from 'plotly.js';
 import type { BenchmarkSummary } from '$lib/types';
+import { datedRows } from '$lib/pareto';
 
 const RADAR_LINE_COLORS = ['#EE4266', '#00a6ed', '#ECA72C', '#B42318', '#3CBBB1'];
 
@@ -8,12 +9,15 @@ export interface PlotSpec {
 	layout: Partial<Layout>;
 }
 
-// Pareto frontier line on the size chart. Exported so the side list's dots
-// match it. Blue, not the time chart's frontier green: it has to stand out
-// against the Greens colorscale and the orange pin ring in both themes.
-export const FRONTIER_COLOR = '#4f8cff';
+// Frontier line colours, exported so each tab's side panel dots (and the
+// size tab's legend swatch) match its chart. The size chart uses the same
+// theme green as the openness meter, so it follows light/dark (PlotlyChart
+// resolves `var(--token)` trace colours).
+export const SIZE_FRONTIER_COLOR = 'var(--tint-green-fg)';
+export const TIME_FRONTIER_COLOR = '#1f7a1f';
 // Mid-grey reads on both the light and dark plot backgrounds.
 export const REFERENCE_COLOR = '#8a94a6';
+const PIN_RING = '#ff6f3c';
 
 type ScoredRow = BenchmarkSummary['rows'][number] & { meanTask: number };
 
@@ -66,7 +70,6 @@ export function performanceSizePlot(
 	]);
 
 	const maxSizeRef = Math.sqrt(4096) / 40; // matches original: desired max diameter = 40px
-	const PIN = '#ff6f3c';
 
 	const trace: Data = {
 		x,
@@ -86,7 +89,7 @@ export function performanceSizePlot(
 			sizeref: maxSizeRef,
 			sizemin: 4,
 			color: colors,
-			colorscale: 'Greens',
+			colorscale: 'Blues',
 			cmin: 2,
 			cmax: 5,
 			showscale: true,
@@ -105,12 +108,12 @@ export function performanceSizePlot(
 				ticklen: 3,
 				tickcolor: 'rgba(0,0,0,0)'
 			},
-			// Pinned wins over frontier; a blue ring picks frontier models out
+			// Pinned wins over frontier; a purple ring picks frontier models out
 			// of dense clusters where their bubbles overlap neighbours.
 			line: {
 				width: isPinned.map((p, i) => (p ? 3 : isFrontier[i] ? 1.5 : 0.5)),
 				color: isPinned.map((p, i) =>
-					p ? PIN : isFrontier[i] ? FRONTIER_COLOR : 'rgba(31,35,41,0.35)'
+					p ? PIN_RING : isFrontier[i] ? SIZE_FRONTIER_COLOR : 'rgba(31,35,41,0.35)'
 				)
 			}
 		}
@@ -118,34 +121,23 @@ export function performanceSizePlot(
 
 	// Pareto frontier from `applyFilters` (see `$lib/pareto`), step-after
 	// style: each frontier model holds its score until a larger one beats it.
-	// Raised above the markers via `zorder` (dense 1–10B clusters would bury it
-	// otherwise) and hover-skipped so it never steals a point's tip. Two wider,
-	// translucent copies underneath give the thin core a soft glow so it still
-	// reads over the near-white bubbles.
+	// Same plain step line as the time chart, but raised above the markers via
+	// `zorder` (dense 1–10B clusters would bury it otherwise) and hover-skipped
+	// so it never steals a point's tip.
 	const frontierIdx = rows
 		.map((_, i) => i)
 		.filter((i) => isFrontier[i])
 		.sort((a, b) => x[a] - x[b]);
-	const fx = frontierIdx.map((i) => x[i]);
-	const fy = frontierIdx.map((i) => y[i]);
-	const frontierTrace = (color: string, width: number, zorder: number): Data => ({
-		x: fx,
-		y: fy,
+	const frontierLine: Data = {
+		x: frontierIdx.map((i) => x[i]),
+		y: frontierIdx.map((i) => y[i]),
 		mode: 'lines',
 		type: 'scatter',
-		line: { color, width, shape: 'hv' },
+		line: { color: SIZE_FRONTIER_COLOR, width: 2, shape: 'hv' },
 		hoverinfo: 'skip',
-		showlegend: false,
-		zorder
-	});
-	const frontierLine: Data = {
-		...frontierTrace(FRONTIER_COLOR, 1.75, 3),
-		name: 'Pareto frontier'
+		name: 'Pareto frontier',
+		zorder: 1
 	};
-	const frontierGlow = [
-		frontierTrace('rgba(79,140,255,0.14)', 9, 1),
-		frontierTrace('rgba(79,140,255,0.32)', 4.5, 2)
-	];
 
 	// Proprietary models rarely publish a param count, so most can't be placed
 	// on the x-axis. A dashed reference line at the best one's score keeps them
@@ -192,23 +184,16 @@ export function performanceSizePlot(
 					]
 	};
 
-	return { data: [frontierLine, trace, ...frontierGlow], layout };
+	return { data: [frontierLine, trace], layout };
 }
 
 export function performanceOverTimePlot(
 	summary: BenchmarkSummary,
 	pinned: ReadonlySet<string> = new Set()
 ): PlotSpec {
-	const points = summary.rows
-		.filter(
-			(r): r is BenchmarkSummary['rows'][number] & { meanTask: number } =>
-				!!r.model.releaseDate && r.meanTask != null
-		)
-		.sort(
-			(a, b) => new Date(a.model.releaseDate!).getTime() - new Date(b.model.releaseDate!).getTime()
-		);
+	const points = datedRows(summary.rows);
 
-	const dates = points.map((r) => r.model.releaseDate!);
+	const dates = points.map((r) => r.model.releaseDate);
 	const scores = points.map((r) => r.meanTask * 100);
 	const names = points.map((r) => r.model.displayName);
 	const isPinned = points.map((r) => pinned.has(r.model.name));
@@ -222,7 +207,6 @@ export function performanceOverTimePlot(
 	}
 
 	const PIN_FILL = '#1f2329';
-	const PIN_RING = '#ff6f3c';
 
 	const scatter: Data = {
 		x: dates,
@@ -251,7 +235,7 @@ export function performanceOverTimePlot(
 		y: frontier,
 		mode: 'lines',
 		type: 'scatter',
-		line: { color: '#1f7a1f', width: 2, shape: 'hv' },
+		line: { color: TIME_FRONTIER_COLOR, width: 2, shape: 'hv' },
 		hovertemplate: '%{x|%Y-%m-%d}<br>Best so far: %{y:.2f}<extra></extra>',
 		name: 'Pareto frontier'
 	};
