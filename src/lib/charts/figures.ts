@@ -16,6 +16,11 @@ export interface PlotSpec {
 // resolves `var(--token)` trace colours).
 export const SIZE_FRONTIER_COLOR = 'var(--tint-green-fg)';
 export const TIME_FRONTIER_COLOR = '#1f7a1f';
+// Ring on the size chart's frontier bubbles. A mid-luminance pink contrasts
+// with both ends of the Blues scale (navy and near-white), which a dark green
+// or white ring can't, and is distinct from the orange pin ring. Same hue as
+// the table's Pareto tag.
+export const FRONTIER_RING_COLOR = '#ec4899';
 // Mid-grey reads on both the light and dark plot backgrounds.
 export const REFERENCE_COLOR = '#8a94a6';
 const PIN_RING = '#ff6f3c';
@@ -73,6 +78,9 @@ export function performanceSizePlot(
 	const maxSizeRef = Math.sqrt(4096) / 40; // matches original: desired max diameter = 40px
 
 	const trace: Data = {
+		// Per-point `rowId`s let a side-panel entry find its bubble
+		// (`PlotlyChart.hoverPoint`).
+		ids: rows.map(rowId),
 		x,
 		y,
 		text,
@@ -109,12 +117,12 @@ export function performanceSizePlot(
 				ticklen: 3,
 				tickcolor: 'rgba(0,0,0,0)'
 			},
-			// Pinned wins over frontier; a purple ring picks frontier models out
+			// Pinned wins over frontier; a pink ring picks frontier models out
 			// of dense clusters where their bubbles overlap neighbours.
 			line: {
-				width: isPinned.map((p, i) => (p ? 3 : isFrontier[i] ? 1.5 : 0.5)),
+				width: isPinned.map((p, i) => (p ? 3 : isFrontier[i] ? 2 : 0.5)),
 				color: isPinned.map((p, i) =>
-					p ? PIN_RING : isFrontier[i] ? SIZE_FRONTIER_COLOR : 'rgba(31,35,41,0.35)'
+					p ? PIN_RING : isFrontier[i] ? FRONTIER_RING_COLOR : 'rgba(31,35,41,0.35)'
 				)
 			}
 		}
@@ -210,6 +218,7 @@ export function performanceOverTimePlot(
 	const PIN_FILL = '#1f2329';
 
 	const scatter: Data = {
+		ids: points.map(rowId),
 		x: dates,
 		y: scores,
 		text: names,

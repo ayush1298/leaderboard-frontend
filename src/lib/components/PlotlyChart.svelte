@@ -200,6 +200,23 @@
 
 	let teardown: (() => void) | null = null;
 
+	/** Show Plotly's own hover label on the point whose trace `ids` entry is
+	 *  `id`, as if the pointer were over it — lets a list outside the chart
+	 *  point at its bubble. No-op until Plotly has loaded or if no trace
+	 *  carries that id. */
+	export function hoverPoint(id: string) {
+		if (!Plotly || !el) return;
+		const points: { curveNumber: number; pointNumber: number }[] = [];
+		data.forEach((trace, curveNumber) => {
+			const pointNumber = ((trace as { ids?: string[] }).ids ?? []).indexOf(id);
+			if (pointNumber >= 0) points.push({ curveNumber, pointNumber });
+		});
+		if (points.length) Plotly.Fx.hover(el, points);
+	}
+	export function unhover() {
+		if (Plotly && el) Plotly.Fx.unhover(el);
+	}
+
 	$effect(() => {
 		if (!mounted || !Plotly) return;
 		Plotly.react(el, resolveVars(data), buildLayout(), { ...defaultConfig, ...config });

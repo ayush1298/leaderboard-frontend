@@ -27,6 +27,22 @@
 	// `fmtParamsCompact` renders 0 as '—', but a static model's 0 active
 	// params is a real value here.
 	const fmtActive = (b: number) => (b === 0 ? '0 M' : fmtParamsCompact(b, ' '));
+	// One frontier spans every model type on the chart, but active parameters
+	// don't capture per-document cost (late-interaction stores many vectors
+	// per document; cross-encoders score every query–document pair). Say so
+	// when the plotted models mix types, and point at the per-type filter.
+	let note = $derived.by(() => {
+		const types = [
+			...new Set(summary.rows.filter(isParetoEligible).map((r) => r.model.modelType))
+		].sort();
+		if (types.length < 2) return '';
+		const list = `${types.slice(0, -1).join(', ')} and ${types[types.length - 1]}`;
+		return (
+			`Mixes ${list} models. Active parameters don't capture ` +
+			`per-document storage or scoring cost, so filter by model type in the sidebar ` +
+			`for a like-for-like frontier.`
+		);
+	});
 	// Same models the frontier line connects, smallest first — reads left to
 	// right along the chart.
 	let items = $derived(
@@ -56,6 +72,7 @@
 		height={520}
 		color={SIZE_FRONTIER_COLOR}
 		{legend}
+		{note}
 		title="Pareto optimal"
 		{items}
 	/>

@@ -168,9 +168,9 @@
 		color: var(--type-tint, inherit);
 		font-weight: 700;
 	}
-	/* Matches the green of the Pareto tag in the model cell. */
+	/* Matches the pink of the model cell's Pareto tag. */
 	.pareto-yes {
-		color: var(--tint-green-fg);
+		color: var(--tint-pink-fg);
 		font-weight: 700;
 	}
 	.modality-note {

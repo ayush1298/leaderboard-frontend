@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BenchmarkSummary, ModelMeta, SummaryRow, TaskMeta } from '$lib/types';
 import {
+	FRONTIER_RING_COLOR,
 	SIZE_FRONTIER_COLOR,
 	performanceOverTimePlot,
 	performanceSizePlot,
@@ -152,9 +153,16 @@ describe('performanceSizePlot', () => {
 		);
 		const marker = (spec.data[1] as { marker: { line: { width: number[]; color: string[] } } })
 			.marker;
-		expect(marker.line.width).toEqual([1.5, 3, 0.5]);
-		expect(marker.line.color[0]).toBe(SIZE_FRONTIER_COLOR);
+		expect(marker.line.width).toEqual([2, 3, 0.5]);
+		expect(marker.line.color[0]).toBe(FRONTIER_RING_COLOR);
 		expect(marker.line.color[1]).toBe('#ff6f3c');
+	});
+
+	it('tags each bubble with its rowId so a side panel can find it', () => {
+		const base = row(1, model('org/m'), 0.5);
+		const variant = { ...row(2, model('org/m'), 0.6), experiments: { colbert: true } };
+		const spec = performanceSizePlot(summary([base, variant]));
+		expect((spec.data[1] as { ids: string[] }).ids).toEqual(['org/m', 'org/m::colbert_true']);
 	});
 
 	it('emits an empty frontier when the summary carries none', () => {
@@ -198,6 +206,13 @@ describe('performanceOverTimePlot', () => {
 		const spec = performanceOverTimePlot(summary([a]));
 		expect(spec.data).toHaveLength(2);
 		expect((spec.layout.xaxis as { type?: string }).type).toBe('date');
+	});
+
+	it('tags each marker with its rowId, oldest first', () => {
+		const late = row(1, model('late', { releaseDate: '2025-01-01' }), 0.7);
+		const early = row(2, model('early', { releaseDate: '2024-01-01' }), 0.6);
+		const spec = performanceOverTimePlot(summary([late, early]));
+		expect((spec.data[1] as { ids: string[] }).ids).toEqual(['early', 'late']);
 	});
 
 	it('drops rows missing a release date or meanTask before plotting', () => {

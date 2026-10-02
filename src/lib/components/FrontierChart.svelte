@@ -35,12 +35,17 @@
 		height: number;
 		color: string;
 		legend?: LegendItem[];
+		/** Optional caveat shown under the legend. */
+		note?: string;
 		title: string;
 		items: FrontierItem[];
 	}
-	let { spec, height, color, legend = [], title, items }: Props = $props();
+	let { spec, height, color, legend = [], note = '', title, items }: Props = $props();
 	// Both tabs stay mounted, so the heading id must be per-instance.
 	const headingId = $props.id();
+	// Hovering or focusing a panel entry shows its bubble's hover label on the
+	// chart; clicking still follows the link to the model page.
+	let chart = $state<{ hoverPoint: (id: string) => void; unhover: () => void }>();
 </script>
 
 <div class="frontier-chart" style:--frontier={color} style:--reference={REFERENCE_COLOR}>
@@ -54,16 +59,25 @@
 			{/each}
 		</ul>
 	{/if}
+	{#if note}
+		<p class="note">{note}</p>
+	{/if}
 	<div class="layout">
 		<div class="chart">
-			<PlotlyChart data={spec.data} layout={spec.layout} {height} />
+			<PlotlyChart bind:this={chart} data={spec.data} layout={spec.layout} {height} />
 		</div>
 		{#if items.length > 0}
 			<aside class="panel" aria-labelledby={headingId} style:--panel-max="{height}px">
 				<h3 id={headingId}>{title} <span class="count">{items.length}</span></h3>
 				<ol>
 					{#each items as item (item.id)}
-						<li data-model-type={item.modelType}>
+						<li
+							data-model-type={item.modelType}
+							onpointerenter={() => chart?.hoverPoint(item.id)}
+							onpointerleave={() => chart?.unhover()}
+							onfocusin={() => chart?.hoverPoint(item.id)}
+							onfocusout={() => chart?.unhover()}
+						>
 							<a
 								class="name"
 								href={resolve('/models/[...name=modelName]', { name: modelPath(item.name) })}
@@ -94,6 +108,11 @@
 		list-style: none;
 		font-size: 12px;
 		color: var(--text-muted);
+	}
+	.note {
+		margin: -4px 0 12px;
+		font-size: 12px;
+		color: var(--text-subtle);
 	}
 	.legend li {
 		display: inline-flex;

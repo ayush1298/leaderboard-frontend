@@ -80,15 +80,16 @@
 
 <style>
 	/* Inline after the model name so it wraps with long names instead of
-	   widening the fixed-width sticky column. Green, not blue, so it doesn't
-	   blend into the dense-model name tint beside it. */
+	   widening the fixed-width sticky column. Pink because it's the one tint
+	   no model type uses for its name colour (and purple is the variant
+	   chip); the size chart rings frontier bubbles in the same hue. */
 	.pareto-tag {
 		display: inline-block;
 		margin-left: 6px;
 		padding: 0 6px;
 		border-radius: 999px;
-		background: var(--tint-green);
-		color: var(--tint-green-fg);
+		background: var(--tint-pink);
+		color: var(--tint-pink-fg);
 		font-size: 10px;
 		font-weight: 700;
 		letter-spacing: 0.04em;
