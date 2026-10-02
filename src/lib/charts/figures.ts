@@ -1,5 +1,6 @@
 import type { Data, Layout } from 'plotly.js';
 import type { BenchmarkSummary } from '$lib/types';
+import { rowId } from '$lib/format';
 import { datedRows } from '$lib/pareto';
 
 const RADAR_LINE_COLORS = ['#EE4266', '#00a6ed', '#ECA72C', '#B42318', '#3CBBB1'];
@@ -59,8 +60,8 @@ export function performanceSizePlot(
 	const sizes = rows.map((r) => paramSizeForBubble(r.embeddingDim ?? 0));
 	const colors = rows.map((r) => Math.log10(Math.max(r.maxTokens ?? 1, 1)));
 	const text = rows.map((r) => r.model.displayName);
-	const isPinned = rows.map((r) => pinned.has(r.model.name));
-	const isFrontier = rows.map((r) => summary.paretoModels?.has(r.model.name) ?? false);
+	const isPinned = rows.map((r) => pinned.has(rowId(r)));
+	const isFrontier = rows.map((r) => summary.paretoModels?.has(rowId(r)) ?? false);
 	const customdata = rows.map((r, i) => [
 		r.maxTokens != null ? r.maxTokens.toLocaleString() : '—',
 		r.embeddingDim != null ? r.embeddingDim.toLocaleString() : '—',
@@ -196,7 +197,7 @@ export function performanceOverTimePlot(
 	const dates = points.map((r) => r.model.releaseDate);
 	const scores = points.map((r) => r.meanTask * 100);
 	const names = points.map((r) => r.model.displayName);
-	const isPinned = points.map((r) => pinned.has(r.model.name));
+	const isPinned = points.map((r) => pinned.has(rowId(r)));
 
 	// Pareto frontier (cumulative max), step-after style.
 	const frontier: number[] = [];

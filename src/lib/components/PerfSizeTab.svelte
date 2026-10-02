@@ -5,7 +5,7 @@
 		bestProprietaryRow,
 		performanceSizePlot
 	} from '$lib/charts/figures';
-	import { fmtParamsCompact, fmtPct } from '$lib/format';
+	import { experimentLabel, fmtParamsCompact, fmtPct, rowId } from '$lib/format';
 	import { isParetoEligible } from '$lib/pareto';
 	import { pinnedModels } from '$lib/stores/pinned.svelte';
 	import FrontierChart, { type LegendItem } from './FrontierChart.svelte';
@@ -32,11 +32,13 @@
 	let items = $derived(
 		summary.rows
 			.filter(isParetoEligible)
-			.filter((r) => summary.paretoModels?.has(r.model.name))
+			.filter((r) => summary.paretoModels?.has(rowId(r)))
 			.sort((a, b) => a.activeParamsB - b.activeParamsB || b.meanTask - a.meanTask)
 			.map((r) => ({
+				id: rowId(r),
 				name: r.model.name,
 				displayName: r.model.displayName,
+				variant: experimentLabel(r.experiments),
 				modelType: r.model.modelType,
 				detail: fmtPct(r.meanTask),
 				meta: fmtActive(r.activeParamsB)

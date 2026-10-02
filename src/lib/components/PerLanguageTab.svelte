@@ -5,7 +5,7 @@
 	import { stickyHead } from '$lib/actions/sticky-head';
 	import { stickyHScroll } from '$lib/actions/sticky-hscroll';
 	import { type CsvCell } from '$lib/csv';
-	import { floatPinnedToTop, heat } from '$lib/format';
+	import { floatPinnedToTop, heat, rowId } from '$lib/format';
 	import { createSortState } from '$lib/stores/sort.svelte';
 	import { loadPerLanguage } from '$lib/data/service';
 	import ModelCellName from './ModelCellName.svelte';
@@ -14,16 +14,26 @@
 	import SortHeader from './SortHeader.svelte';
 	import { onMount } from 'svelte';
 
-	// Real per-(model, language) scores from
+	// Real per-(model, experiment variant, language) scores from
 	// `/v1/benchmarks/{name}/per-language`. Lazy-fetched on tab mount so
 	// the Summary tab doesn't pay the explode + group_by cost. Until the
 	// fetch resolves the table renders `'—'` placeholders; once `data`
-	// is set the derived blocks rebuild against real scores.
+	// is set the derived blocks rebuild against real scores. Keyed by
+	// `rowId` (model + experiments), not bare model name — a model's base
+	// run and its ablations are separate `SummaryRow`s with separate
+	// per-language scores, matching how every other tab keys its rows.
 	let data = $state<BenchmarkPerLanguage | null>(null);
 	let scoresByModel = $derived.by(() => {
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const m = new Map<string, Record<string, number>>();
-		if (data) for (const r of data.rows) m.set(r.modelName, r.scoresByLanguage);
+		if (data) {
+			for (const r of data.rows) {
+				m.set(
+					rowId({ model: { name: r.modelName }, experiments: r.experiments }),
+					r.scoresByLanguage
+				);
+			}
+		}
 		return m;
 	});
 	onMount(() => {
@@ -32,19 +42,19 @@
 		});
 	});
 	function langScore(row: SummaryRow, lang: string): number | null {
-		const v = scoresByModel.get(row.model.name)?.[lang];
+		const v = scoresByModel.get(rowId(row))?.[lang];
 		return typeof v === 'number' ? v * 100 : null;
 	}
 
 	type Tip = {
-		showFor: (t: HTMLElement, row: SummaryRow) => void;
+		showFor: (t: HTMLElement, row: SummaryRow, requiredModalities?: string[]) => void;
 		hide: () => void;
 	};
 	let tipPortal = $state<Tip | undefined>(undefined);
 
 	function onCellEnter(e: PointerEvent | FocusEvent, row: SummaryRow) {
 		if (!isBoundaryCross(e)) return;
-		tipPortal?.showFor(e.currentTarget as HTMLElement, row);
+		tipPortal?.showFor(e.currentTarget as HTMLElement, row, benchmarkModalities);
 	}
 	function onCellLeave(e?: PointerEvent | FocusEvent) {
 		if (e && !isBoundaryCross(e)) return;
@@ -61,8 +71,10 @@
 		// subscription so pin clicks elsewhere don't invalidate this
 		// derived.
 		active?: boolean;
+		// See `SummaryTable.svelte` — forwarded to `ModelCellName`.
+		benchmarkModalities?: string[];
 	}
-	let { summary, languageView, active = true }: Props = $props();
+	let { summary, languageView, active = true, benchmarkModalities = undefined }: Props = $props();
 
 	let LANGUAGES = $derived.by(() => {
 		if (languageView === 'all') {
@@ -153,7 +165,7 @@
 			});
 		}
 		if (!active) return rows;
-		return floatPinnedToTop(rows, (r) => pinnedModels.has(r.model.name), pinnedModels.size);
+		return floatPinnedToTop(rows, (r) => pinnedModels.has(rowId(r)), pinnedModels.size);
 	});
 
 	function fmt(n: number | null): string {
@@ -180,8 +192,7 @@
 
 <div class="wrap">
 	<p class="muted head-note">
-		Example per-language scores for the visible models. Click any column header to sort. Values are
-		simulated until the backend exposes the real per-language breakdown.
+		Per-language scores for the visible models. Click any column header to sort.
 	</p>
 	<div class="tbl-scroll" use:stickyHScroll>
 		<table class="tbl lang-table" use:stickyHead>
@@ -204,11 +215,12 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each sortedRows as row (row.model.name)}
+				{#each sortedRows as row (rowId(row))}
+					{@const rid = rowId(row)}
 					{@const mean = rowMean(row)}
-					<tr class:pinned={pinnedModels.has(row.model.name)}>
+					<tr class:pinned={pinnedModels.has(rid)}>
 						<td class="tbl-pin-col tbl-sticky-pin">
-							<PinButton name={row.model.name} />
+							<PinButton name={rid} />
 						</td>
 						<th
 							scope="row"
@@ -219,7 +231,11 @@
 							onfocusin={(e) => onCellEnter(e, row)}
 							onfocusout={onCellLeave}
 						>
-							<ModelCellName model={row.model} />
+							<ModelCellName
+								model={row.model}
+								experiments={row.experiments}
+								requiredModalities={benchmarkModalities}
+							/>
 						</th>
 						<td
 							class="tbl-num {heat(mean, worstMean, bestMean)}"

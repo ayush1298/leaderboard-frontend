@@ -40,6 +40,28 @@ export function sortModalities<T extends string>(mods: readonly T[] | undefined)
 }
 
 /**
+ * Required modalities (e.g. a benchmark's or task's) the model can't encode.
+ * Empty when the model covers everything required, or when nothing is
+ * required. `modelModalities` defaults to `["text"]` when empty/missing —
+ * mirrors the backend's own default (see `ModelMeta.modalities` in types.ts)
+ * so a model with an omitted field isn't flagged against a text-only
+ * benchmark.
+ *
+ * Surfaces cases like a text-only model ranked on a benchmark whose corpus
+ * is image+text (e.g. ViDoRe) — the model can't have "seen" the images, so
+ * its score likely comes from an OCR/caption fallback rather than genuine
+ * multimodal understanding.
+ */
+export function missingModalities(
+	modelModalities: readonly string[] | undefined,
+	requiredModalities: readonly string[] | undefined
+): string[] {
+	if (!requiredModalities || requiredModalities.length === 0) return [];
+	const have = new Set(modelModalities?.length ? modelModalities : ['text']);
+	return requiredModalities.filter((m) => !have.has(m));
+}
+
+/**
  * Resolve an API-relative URL (one starting with "/") against PUBLIC_API_URL.
  * Absolute URLs and empty/null inputs pass through unchanged. Used so the
  * backend can serve cache-friendly proxy paths (e.g. /v1/icon/<name>) without
@@ -81,6 +103,77 @@ export function modelPath(name: string): string {
 		.split('/')
 		.map((segment) => encodeURIComponent(segment))
 		.join('/');
+}
+
+/**
+ * Stable per-row identifier for tables that may hold experiment-variant rows.
+ *
+ * Multiple rows can share the same ``model.name`` when the backend emits
+ * experiment ablations (one row per kwargs combination). The Svelte ``{#each}``
+ * key, pin store, and any other identity-keyed map needs a string that's
+ * unique per (model, experiments) pair.
+ *
+ * Base rows return ``model.name`` unchanged so legacy ``?pin=org/name`` URL
+ * params (and any code that still passes the raw name) keep working.
+ * Variant rows append ``"::"`` + a deterministic kwargs serialisation that
+ * matches the backend's variant id (sorted keys, ``__`` between pairs, ``_``
+ * between key and value).
+ */
+/**
+ * Deterministic string form of one experiment-kwarg value, mirroring the
+ * backend's recursive dict/list serialisation
+ * (`mteb.models.model_meta._serialize_experiment_kwargs_to_name`'s
+ * `_serialize_value`). Plain `${value}` on an object or array always
+ * stringifies to `"[object Object]"` regardless of content — using that
+ * directly would collide two different nested-kwargs experiments (e.g.
+ * `{model_kwargs: {a: 1}}` vs `{model_kwargs: {b: 2}}`) onto the same
+ * `rowId`, and renders literally as `[object Object]` in the chip label.
+ */
+export function serializeExperimentValue(value: unknown): string {
+	if (value === null || value === undefined) return String(value);
+	if (Array.isArray(value)) {
+		return `[${value.map(serializeExperimentValue).join(',')}]`;
+	}
+	if (typeof value === 'object') {
+		const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+			a < b ? -1 : a > b ? 1 : 0
+		);
+		return `{${entries.map(([k, v]) => `${k}:${serializeExperimentValue(v)}`).join(',')}}`;
+	}
+	return String(value);
+}
+
+export function rowId(row: {
+	model: { name: string };
+	experiments?: Record<string, unknown> | null;
+}): string {
+	const exp = row.experiments;
+	if (!exp) return row.model.name;
+	const keys = Object.keys(exp);
+	if (keys.length === 0) return row.model.name;
+	const serialized = keys
+		.slice()
+		.sort()
+		.map((k) => `${k}_${serializeExperimentValue(exp[k])}`)
+		.join('__');
+	return `${row.model.name}::${serialized}`;
+}
+
+/**
+ * Compact "k=v, k=v" label for a row's experiment kwargs — the text of the
+ * variant chip under a model name. Sorted so identical kwarg sets always
+ * render identically; `''` for base rows.
+ */
+export function experimentLabel(experiments: Record<string, unknown> | null | undefined): string {
+	if (!experiments) return '';
+	const keys = Object.keys(experiments).sort();
+	return keys.map((k) => `${k}=${serializeExperimentValue(experiments[k])}`).join(', ');
+}
+
+/** Strips a `rowId`'s `::k_v__...` variant suffix back to the plain model name. */
+export function baseModelName(id: string): string {
+	const i = id.indexOf('::');
+	return i === -1 ? id : id.slice(0, i);
 }
 
 /** Tabular integer with locale grouping, em-dash for falsy values. */

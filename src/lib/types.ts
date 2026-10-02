@@ -1,4 +1,36 @@
-export type BenchmarkAggregation = 'mean_task' | 'mean_task_type' | 'task_types' | 'public_private';
+export type BenchmarkAggregation =
+	| 'mean_task'
+	| 'mean_task_type'
+	| 'task_types'
+	| 'public_private'
+	| 'mean_subset'
+	| 'custom_groups';
+
+// One labeled group within a custom-grouping dimension. Mirrors the backend's
+// CustomGroup — `description` is optional prose surfaced as the column
+// tooltip; falls back to a generic sentence when absent.
+export interface CustomGroup {
+	label: string;
+	description?: string | null;
+	// Whole-task membership only — lets the frontend recompute
+	// scoresByCustomGroup under the sidebar filters, same as scoresByTaskType.
+	// Empty when the group is entirely subset-/split-scoped (see tasksComplete).
+	tasks: string[];
+	// False when the group has a subset-/split-scoped entry too, so `tasks`
+	// doesn't fully represent its membership — filters.svelte.ts must freeze
+	// (not recompute or drop) its score. Defaults to true when absent.
+	tasksComplete?: boolean;
+}
+
+// A named custom dimension a benchmark declares (e.g. "Memory Type" ->
+// Episodic/Dialogue/Semantic/Procedural), driving one super-header + one
+// mean column per group on SummaryTable. Mirrors the backend's
+// CustomGrouping. Appears on `Benchmark` (full static declaration) and on
+// `BenchmarkSummary` (data-driven — only groups with computed scores).
+export interface CustomGrouping {
+	name: string;
+	groups: CustomGroup[];
+}
 
 export interface Benchmark {
 	name: string;
@@ -25,6 +57,10 @@ export interface Benchmark {
 	// `Benchmark.aggregations` upstream — frontend uses it to hide irrelevant
 	// columns (ViDoRe has no per-type breakdown; RTEB has only Mean (Task)).
 	aggregations: BenchmarkAggregation[];
+	// Full static declaration of every custom-grouping dimension this
+	// benchmark defines (with descriptions). Optional — absent on an older
+	// API response or a benchmark with no custom groupings.
+	customGroupings?: CustomGrouping[];
 	// Whether the Zero-shot column is meaningful on this benchmark. Off for
 	// ViDoRe / RTEB where task names aren't tracked in model training-data
 	// annotations so every row would otherwise render as a misleading 100%.
@@ -113,7 +149,13 @@ export function flattenMenu(entries: readonly MenuEntry[]): Benchmark[] {
 	return out;
 }
 
-export type ModelType = 'dense' | 'cross-encoder' | 'late-interaction' | 'sparse' | 'router';
+export type ModelType =
+	| 'dense'
+	| 'cross-encoder'
+	| 'late-interaction'
+	| 'sparse'
+	| 'router'
+	| 'hybrid';
 
 export interface ModelMeta {
 	name: string;
@@ -183,6 +225,14 @@ export interface SummaryRow {
 	// every existing per-task UI; the language filter overrides via
 	// the lazy /per-task endpoint when it lands.
 	scoresByTask: Record<string, number>;
+	// dimension name -> group label -> score, for benchmarks that declare
+	// custom groupings. The *language* filter recomputes this server-side
+	// (aggregators.py's _recompute_lenient_custom_groups); the client-side
+	// task-type/domain/modality sidebar filters recompute it too, via
+	// CustomGroup.tasks (see filters.svelte.ts's customGroupTaskLookup) —
+	// except for scoped (tasksComplete === false) groups, which stay frozen
+	// at their server value since their full membership isn't sent.
+	scoresByCustomGroup?: Record<string, Record<string, number>>;
 	// Tasks (within this benchmark) the model declares in its training
 	// datasets — used by PerTaskTab to surface a ⚠️ next to scores that
 	// the model isn't zero-shot on.
@@ -204,24 +254,31 @@ export interface BenchmarkSummary {
 	// Mirrors the Benchmark.aggregations declaration so SummaryTable knows
 	// which columns to render without inspecting the score data itself.
 	aggregations: BenchmarkAggregation[];
+	// Data-driven view of the benchmark's custom-grouping dimensions — only
+	// groups that actually have computed scores (mirrors `taskTypes`'
+	// relationship to the per-task-type summary columns). Optional — absent
+	// on an older API response.
+	customGroupings?: CustomGrouping[];
 	// Mirrors `Benchmark.showZeroShot` — SummaryTable hides the Zero-shot
 	// column when False (ViDoRe / RTEB, where the metric is uniformly 100%).
 	showZeroShot?: boolean;
-	// Frontend-only, set by `applyFilters`: `model.name`s on the size vs.
+	// Frontend-only, set by `applyFilters`: `rowId`s on the size vs.
 	// Mean (Task) Pareto frontier of the filtered rows (see `$lib/pareto`).
 	// Computed before the name search narrows rows, so searching doesn't
 	// promote a model onto the frontier.
 	paretoModels?: ReadonlySet<string>;
 }
 
-// `/v1/benchmarks/{name}/per-language` payload — one row per model with
-// its mean main_score per language label (e.g. "English" → 0.732).
-// Loaded lazily by PerLanguageTab on mount. Keys match the language
-// labels emitted on `Benchmark.languages` / `TaskMeta.languages` so
-// joins are direct.
+// `/v1/benchmarks/{name}/per-language` payload — one row per (model,
+// experiment variant) with its mean main_score per language label (e.g.
+// "English" → 0.732). Loaded lazily by PerLanguageTab on mount. Keys match
+// the language labels emitted on `Benchmark.languages` / `TaskMeta.languages`
+// so joins are direct. Same (model, experiments) granularity as `SummaryRow`
+// — match a row here to its `SummaryRow` via `rowId()`, not `modelName` alone.
 export interface BenchmarkPerLanguageRow {
 	modelName: string;
 	scoresByLanguage: Record<string, number>;
+	experiments?: Record<string, unknown> | null;
 }
 export interface BenchmarkPerLanguage {
 	benchmarkName: string;
@@ -415,6 +472,12 @@ export interface AnySTSDescriptiveStatistics {
 	video2_statistics: VideoStatistics | null;
 	label_statistics: ScoreStatistics;
 }
+// Aggregate (top-level) shape: base fields plus an optional per-`hf_subset`
+// breakdown for multilingual datasets. Subset entries carry only the base
+// fields — no further nesting.
+export interface AnySTSStatistics extends AnySTSDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, AnySTSDescriptiveStatistics>;
+}
 
 export interface BitextDescriptiveStatistics {
 	num_samples: number;
@@ -422,6 +485,9 @@ export interface BitextDescriptiveStatistics {
 	unique_pairs: number;
 	sentence1_statistics: TextStatistics;
 	sentence2_statistics: TextStatistics;
+}
+export interface BitextStatistics extends BitextDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, BitextDescriptiveStatistics>;
 }
 
 export interface ClassificationDescriptiveStatistics {
@@ -433,6 +499,9 @@ export interface ClassificationDescriptiveStatistics {
 	video_statistics: VideoStatistics | null;
 	label_statistics: LabelStatistics;
 }
+export interface ClassificationStatistics extends ClassificationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ClassificationDescriptiveStatistics>;
+}
 
 export interface RegressionDescriptiveStatistics {
 	num_samples: number;
@@ -443,6 +512,9 @@ export interface RegressionDescriptiveStatistics {
 	video_statistics: VideoStatistics | null;
 	values_statistics: ScoreStatistics;
 }
+export interface RegressionStatistics extends RegressionDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, RegressionDescriptiveStatistics>;
+}
 
 export interface ClusteringDescriptiveStatistics {
 	num_samples: number;
@@ -452,6 +524,9 @@ export interface ClusteringDescriptiveStatistics {
 	video_statistics: VideoStatistics | null;
 	label_statistics: LabelStatistics;
 }
+export interface ClusteringStatistics extends ClusteringDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ClusteringDescriptiveStatistics>;
+}
 
 export interface ClusteringFastDescriptiveStatistics {
 	num_samples: number;
@@ -460,6 +535,9 @@ export interface ClusteringFastDescriptiveStatistics {
 	audio_statistics: AudioStatistics | null;
 	video_statistics: VideoStatistics | null;
 	labels_statistics: LabelStatistics;
+}
+export interface ClusteringFastStatistics extends ClusteringFastDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ClusteringFastDescriptiveStatistics>;
 }
 
 export interface PairClassificationDescriptiveStatistics {
@@ -476,6 +554,9 @@ export interface PairClassificationDescriptiveStatistics {
 	video2_statistics: VideoStatistics | null;
 	labels_statistics: LabelStatistics;
 }
+export interface PairClassificationStatistics extends PairClassificationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, PairClassificationDescriptiveStatistics>;
+}
 
 export interface ZeroShotClassificationDescriptiveStatistics {
 	num_samples: number;
@@ -485,6 +566,9 @@ export interface ZeroShotClassificationDescriptiveStatistics {
 	video_statistics: VideoStatistics | null;
 	label_statistics: LabelStatistics;
 	candidates_labels_text_statistics: TextStatistics;
+}
+export interface ZeroShotClassificationStatistics extends ZeroShotClassificationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ZeroShotClassificationDescriptiveStatistics>;
 }
 
 export interface RetrievalDescriptiveStatistics {
@@ -503,6 +587,9 @@ export interface RetrievalDescriptiveStatistics {
 	relevant_docs_statistics: RelevantDocsStatistics;
 	top_ranked_statistics: TopRankedStatistics | null;
 }
+export interface RetrievalStatistics extends RetrievalDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, RetrievalDescriptiveStatistics>;
+}
 
 export interface SummarizationDescriptiveStatistics {
 	num_samples: number;
@@ -512,50 +599,49 @@ export interface SummarizationDescriptiveStatistics {
 	machine_summaries_statistics: TextStatistics;
 	score_statistics: ScoreStatistics;
 }
+export interface SummarizationStatistics extends SummarizationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, SummarizationDescriptiveStatistics>;
+}
 
 export interface ImageTextPairClassificationDescriptiveStatistics {
 	num_samples: number;
 	text_statistics: TextStatistics;
 	image_statistics: ImageStatistics;
 }
-
-// Union of every per-split shape. Discriminating up-front (via
-// `TaskMeta.type`) is not enough — at least one task (`AJGT`) ships
-// fields the schema doesn't declare (`number_texts_intersect_with_train`),
-// and the renderer iterates known `*_statistics` keys structurally rather
-// than type-narrowing, so we widen here for the consumer.
-export type SplitDescriptiveStatistics =
-	| AnySTSDescriptiveStatistics
-	| BitextDescriptiveStatistics
-	| ClassificationDescriptiveStatistics
-	| RegressionDescriptiveStatistics
-	| ClusteringDescriptiveStatistics
-	| ClusteringFastDescriptiveStatistics
-	| PairClassificationDescriptiveStatistics
-	| ZeroShotClassificationDescriptiveStatistics
-	| RetrievalDescriptiveStatistics
-	| SummarizationDescriptiveStatistics
-	| ImageTextPairClassificationDescriptiveStatistics;
-
-// Multilingual datasets wrap each split's stats in a per-`hf_subset` map.
-// Distinguishable by the presence of `hf_subset_descriptive_stats`.
-export interface MultiSubsetDescriptiveStatistics {
-	num_samples: number;
-	hf_subset_descriptive_stats: Record<string, SplitDescriptiveStatistics>;
+export interface ImageTextPairClassificationStatistics extends ImageTextPairClassificationDescriptiveStatistics {
+	hf_subset_descriptive_stats?: Record<string, ImageTextPairClassificationDescriptiveStatistics>;
 }
 
-// Top-level API shape: split name → stats (or multilingual wrapper).
-export type TaskDescriptiveStats = Record<
-	string,
-	SplitDescriptiveStatistics | MultiSubsetDescriptiveStatistics
->;
+// Union of every per-split shape returned at the top level of
+// `/tasks/{name}/descriptive_statistics`. Discriminating up-front (via
+// `TaskMeta.type`) is not enough — at least one task (`AJGT`) ships fields
+// the schema doesn't declare (`number_texts_intersect_with_train`), and the
+// renderer iterates known `*_statistics` keys structurally rather than
+// type-narrowing, so we widen here for the consumer.
+export type TaskSplitStatistics =
+	| AnySTSStatistics
+	| BitextStatistics
+	| ClassificationStatistics
+	| RegressionStatistics
+	| ClusteringStatistics
+	| ClusteringFastStatistics
+	| PairClassificationStatistics
+	| ZeroShotClassificationStatistics
+	| RetrievalStatistics
+	| SummarizationStatistics
+	| ImageTextPairClassificationStatistics;
+
+// Top-level API shape: split name → stats. Multilingual datasets carry an
+// additional `hf_subset_descriptive_stats` map alongside the same aggregate
+// fields — there's no separate wrapper shape.
+export type TaskDescriptiveStats = Record<string, TaskSplitStatistics>;
 
 export function hasSubsets(
-	s: SplitDescriptiveStatistics | MultiSubsetDescriptiveStatistics
-): s is MultiSubsetDescriptiveStatistics {
+	s: TaskSplitStatistics
+): s is TaskSplitStatistics & { hf_subset_descriptive_stats: Record<string, unknown> } {
 	return (
 		'hf_subset_descriptive_stats' in s &&
-		(s as MultiSubsetDescriptiveStatistics).hf_subset_descriptive_stats != null
+		(s as { hf_subset_descriptive_stats?: unknown }).hf_subset_descriptive_stats != null
 	);
 }
 

@@ -4,9 +4,13 @@
 		kind: 'frontier' | 'reference';
 	}
 	export interface FrontierItem {
-		/** Canonical `org/name`: link target, hover title, `{#each}` key. */
+		/** `rowId` — unique per experiment variant; the `{#each}` key. */
+		id: string;
+		/** Canonical `org/name`: link target and hover title. */
 		name: string;
 		displayName: string;
+		/** Experiment kwargs label for variant rows (`''` for base rows). */
+		variant: string;
 		modelType: string;
 		/** Left-hand detail under the name (score). */
 		detail: string;
@@ -58,7 +62,7 @@
 			<aside class="panel" aria-labelledby={headingId} style:--panel-max="{height}px">
 				<h3 id={headingId}>{title} <span class="count">{items.length}</span></h3>
 				<ol>
-					{#each items as item (item.name)}
+					{#each items as item (item.id)}
 						<li data-model-type={item.modelType}>
 							<a
 								class="name"
@@ -67,6 +71,9 @@
 							>
 								<span class="tbl-model-name">{item.displayName}</span>
 							</a>
+							{#if item.variant}
+								<span class="variant">{item.variant}</span>
+							{/if}
 							<span class="detail">{item.detail}</span>
 							<span class="meta">{item.meta}</span>
 						</li>
@@ -153,6 +160,7 @@
 		grid-template-columns: 6px minmax(0, 1fr) auto;
 		grid-template-areas:
 			'dot name name'
+			'. variant variant'
 			'. detail meta';
 		column-gap: 8px;
 		padding: 5px 6px;
@@ -177,6 +185,13 @@
 		grid-area: name;
 		font-size: 13px;
 		line-height: 1.35;
+		overflow-wrap: anywhere;
+	}
+	/* Same purple as the variant chip under model names in the tables. */
+	.variant {
+		grid-area: variant;
+		font-size: 11px;
+		color: var(--tint-purple-fg);
 		overflow-wrap: anywhere;
 	}
 	.detail,

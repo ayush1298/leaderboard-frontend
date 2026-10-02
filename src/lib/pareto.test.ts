@@ -72,6 +72,17 @@ describe('paretoFrontier', () => {
 		expect(sorted(paretoFrontier(rows))).toEqual(['dense', 'static']);
 	});
 
+	it('judges experiment variants of one model separately, keyed by rowId', () => {
+		// Same model.name and size; only the variant is on the frontier, so the
+		// base row must not inherit its tag (or vice versa).
+		const base = row('org/m', 1, 0.5);
+		const variant = { ...row('org/m', 1, 0.6), experiments: { colbert: true } };
+		const frontier = paretoFrontier([base, variant]);
+		expect([...frontier]).toEqual(['org/m::colbert_true']);
+		expect(paretoStatus(base, frontier)).toBe(false);
+		expect(paretoStatus(variant, frontier)).toBe(true);
+	});
+
 	it('returns an empty set for no rows', () => {
 		expect(paretoFrontier([]).size).toBe(0);
 	});

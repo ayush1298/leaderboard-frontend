@@ -129,7 +129,8 @@
 		heat,
 		humanizeType,
 		maxOf,
-		minOf
+		minOf,
+		rowId
 	} from '$lib/format';
 	import { stickyHead } from '$lib/actions/sticky-head';
 	import { stickyHScroll } from '$lib/actions/sticky-hscroll';
@@ -155,8 +156,12 @@
 		// (e.g. /benchmark/[name] only mounts the active tab when prerender
 		// is off) keep the live-pin behaviour.
 		active?: boolean;
+		// Benchmark's modalities — forwarded to `ModelCellName` so it can flag
+		// models that can't encode one of them (e.g. a text-only model on a
+		// benchmark whose corpus is image+text).
+		benchmarkModalities?: string[];
 	}
-	let { summary, active = true }: Props = $props();
+	let { summary, active = true, benchmarkModalities = undefined }: Props = $props();
 
 	type SortKey =
 		| 'rank'
@@ -168,7 +173,9 @@
 		| 'meanTaskType'
 		| 'meanPublic'
 		| 'meanPrivate'
-		| `tt:${string}`;
+		| `tt:${string}`
+		// Encodes `cg:{dimension}::{label}` — split on the first '::'.
+		| `cg:${string}`;
 
 	// Per-summary-tab sort. URL prefix `s.summary` / `d.summary` keeps
 	// the per-task and per-language tabs independent (each has its own
@@ -214,6 +221,11 @@
 			const v = row.scoresByTaskType[tt];
 			return { v: v ?? 0, missing: v === undefined };
 		}
+		if (key.startsWith('cg:')) {
+			const [dim, label] = key.slice(3).split('::');
+			const v = row.scoresByCustomGroup?.[dim]?.[label];
+			return { v: v ?? 0, missing: v === undefined };
+		}
 		return { v: 0, missing: true };
 	}
 
@@ -242,9 +254,11 @@
 		}
 		// Inactive panes don't subscribe to `pinnedModels` — pin clicks
 		// elsewhere don't invalidate this derived. Reactivates on tab switch
-		// (the `active` prop change re-fires the derived).
+		// (the `active` prop change re-fires the derived). Pin keys are
+		// per-row identities (see `rowId`) so pinning a base model and a
+		// variant of the same model independently surfaces both.
 		if (!active) return rows;
-		return floatPinnedToTop(rows, (r) => pinnedModels.has(r.model.name), pinnedModels.size);
+		return floatPinnedToTop(rows, (r) => pinnedModels.has(rowId(r)), pinnedModels.size);
 	});
 
 	// Progressive row render — Firefox benefits a lot (cold first-paint
@@ -273,7 +287,9 @@
 		// already covers everything for any ordering of the same set.
 		const baseRows = summary.rows;
 		const total = baseRows.length;
-		const signature = `${total}|${baseRows[0]?.model.name ?? ''}|${baseRows[total - 1]?.model.name ?? ''}`;
+		const signature = `${total}|${baseRows[0] ? rowId(baseRows[0]) : ''}|${
+			baseRows[total - 1] ? rowId(baseRows[total - 1]) : ''
+		}`;
 		if (signature === lastRowSignature) return;
 		lastRowSignature = signature;
 		const myVersion = ++growVersion;
@@ -325,6 +341,23 @@
 	);
 	let best = $derived(typeBests.best);
 	let worst = $derived(typeBests.worst);
+	// One bestWorstPerColumn pass per dimension — labels aren't unique across
+	// dimensions, so they can't share a single pass like typeBests.
+	let customGroupBests = $derived.by(() => {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity
+		const out = new Map<string, { best: Record<string, number>; worst: Record<string, number> }>();
+		for (const dim of summary.customGroupings ?? []) {
+			out.set(
+				dim.name,
+				bestWorstPerColumn(
+					dim.groups.map((g) => g.label),
+					summary.rows,
+					(r, label) => r.scoresByCustomGroup?.[dim.name]?.[label]
+				)
+			);
+		}
+		return out;
+	});
 	// Walk rows once and produce all the per-column bests/worsts at once.
 	let meanStats = $derived.by(() => {
 		let bTask = -Infinity,
@@ -364,6 +397,12 @@
 	let showMeanTaskType = $derived(summary.aggregations?.includes('mean_task_type') ?? false);
 	let showTaskTypes = $derived(summary.aggregations?.includes('task_types') ?? false);
 	let showPublicPrivate = $derived(summary.aggregations?.includes('public_private') ?? false);
+	// Gated on both the aggregation flag AND non-empty data — defends
+	// against a stale API that sends the flag without `customGroupings`.
+	let showCustomGroups = $derived(
+		(summary.aggregations?.includes('custom_groups') ?? false) &&
+			(summary.customGroupings?.length ?? 0) > 0
+	);
 	// ViDoRe / RTEB don't track training-data overlap for their tasks, so
 	// every row would render as a misleading uniform 100% — hide the column.
 	let showZeroShot = $derived(summary.showZeroShot ?? true);
@@ -459,7 +498,7 @@
 		y: 0
 	});
 	type ModelTip = {
-		showFor: (t: HTMLElement, row: SummaryRow) => void;
+		showFor: (t: HTMLElement, row: SummaryRow, requiredModalities?: string[]) => void;
 		hide: () => void;
 	};
 	let modelTipPortal = $state<ModelTip | undefined>(undefined);
@@ -496,7 +535,7 @@
 
 	function showModelTip(e: PointerEvent | FocusEvent, row: SummaryRow) {
 		if (!isBoundaryCross(e)) return;
-		modelTipPortal?.showFor(e.currentTarget as HTMLElement, row);
+		modelTipPortal?.showFor(e.currentTarget as HTMLElement, row, benchmarkModalities);
 	}
 	function hideModelTip(e?: PointerEvent | FocusEvent) {
 		if (e && !isBoundaryCross(e)) return;
@@ -537,6 +576,10 @@
 	function keepTip() {
 		cancelHide();
 	}
+
+	// Non-custom-group header cells span both header rows when the custom-group
+	// row exists, so its extra height lands only on the aggregated columns.
+	let cgRowspan = $derived(showCustomGroups ? 2 : undefined);
 </script>
 
 <div class="summary">
@@ -548,6 +591,7 @@
 					<th
 						scope="col"
 						class="sticky-left rank-head"
+						rowspan={cgRowspan}
 						data-tip-title={INFO.rank.title}
 						data-tip={INFO.rank.text}
 						onpointerenter={showTip}
@@ -565,6 +609,7 @@
 					<th
 						scope="col"
 						class="sticky-model"
+						rowspan={cgRowspan}
 						aria-sort={sort.aria('model')}
 						data-tip-title={INFO.model.title}
 						data-tip={INFO.model.text}
@@ -582,6 +627,7 @@
 					<th
 						scope="col"
 						class="tbl-num"
+						rowspan={cgRowspan}
 						data-tip-title={INFO.totalParams.title}
 						data-tip={INFO.totalParams.text}
 						onpointerenter={showTip}
@@ -602,6 +648,7 @@
 						<th
 							scope="col"
 							class="openness-head"
+							rowspan={cgRowspan}
 							data-tip-title={INFO.openness.title}
 							data-tip={INFO.openness.text}
 							onpointerenter={showTip}
@@ -621,6 +668,7 @@
 						<th
 							scope="col"
 							class="tbl-num"
+							rowspan={cgRowspan}
 							data-tip-title={INFO.zeroShot.title}
 							data-tip={INFO.zeroShot.text}
 							onpointerenter={showTip}
@@ -639,6 +687,7 @@
 					{#if showMeanTask}
 						<th
 							class="tbl-num"
+							rowspan={cgRowspan}
 							data-tip-title={INFO.meanTask.title}
 							data-tip={INFO.meanTask.text}
 							onpointerenter={showTip}
@@ -657,6 +706,7 @@
 					{#if showMeanTaskType}
 						<th
 							class="tbl-num"
+							rowspan={cgRowspan}
 							data-tip-title={INFO.meanTaskType.title}
 							data-tip={INFO.meanTaskType.text}
 							onpointerenter={showTip}
@@ -677,6 +727,7 @@
 					{#if showPublicPrivate}
 						<th
 							class="tbl-num"
+							rowspan={cgRowspan}
 							data-tip-title={INFO.meanPublic.title}
 							data-tip={INFO.meanPublic.text}
 							onpointerenter={showTip}
@@ -695,6 +746,7 @@
 						</th>
 						<th
 							class="tbl-num"
+							rowspan={cgRowspan}
 							data-tip-title={INFO.meanPrivate.title}
 							data-tip={INFO.meanPrivate.text}
 							onpointerenter={showTip}
@@ -722,6 +774,7 @@
 							<th
 								scope="col"
 								class="tbl-num"
+								rowspan={cgRowspan}
 								aria-sort={sort.aria(k)}
 								data-tip-title={full}
 								data-tip={desc ?? ''}
@@ -738,14 +791,54 @@
 							</th>
 						{/each}
 					{/if}
+					{#if showCustomGroups}
+						{#each summary.customGroupings ?? [] as dim (dim.name)}
+							<th colspan={dim.groups.length} class="cg-dim-head" scope="colgroup">
+								{dim.name}
+							</th>
+						{/each}
+					{/if}
 				</tr>
+				{#if showCustomGroups}
+					<!-- Second header row exists ONLY for the aggregated custom-group
+					     columns — every other header cell above spans both rows via
+					     `rowspan={cgRowspan}` instead of leaving a blank cell here, so
+					     the extra row doesn't add height over the whole table, just
+					     over the dimension(s) that actually need a sub-header. -->
+					<tr class="cg-subhead">
+						{#each summary.customGroupings ?? [] as dim (dim.name)}
+							{#each dim.groups as g (g.label)}
+								{@const k = `cg:${dim.name}::${g.label}` as SortKey}
+								{@const title = `${dim.name}: ${g.label}`}
+								<th
+									scope="col"
+									class="tbl-num"
+									aria-sort={sort.aria(k)}
+									data-tip-title={title}
+									data-tip={g.description ?? `Mean score across ${dim.name} = "${g.label}" tasks.`}
+									onpointerenter={showTip}
+									onpointerleave={hideTip}
+									onfocusin={showTip}
+									onfocusout={hideTip}
+								>
+									<button class="sort-btn tbl-num" onclick={() => sort.click(k)} {title}>
+										<span>{g.label}</span>
+										<InfoDot ariaLabel="What is {title}?" />
+										<span class="ind" class:on={sort.key === k}>{sort.icon(k)}</span>
+									</button>
+								</th>
+							{/each}
+						{/each}
+					</tr>
+				{/if}
 			</thead>
 			<tbody>
-				{#each renderedRows as row (row.model.name)}
-					<tr class:pinned={pinnedModels.has(row.model.name)}>
+				{#each renderedRows as row (rowId(row))}
+					{@const rid = rowId(row)}
+					<tr class:pinned={pinnedModels.has(rid)}>
 						<td class="sticky-left">
 							<div class="rank-cell">
-								<PinButton name={row.model.name} />
+								<PinButton name={rid} />
 								<span class="rank-pill">#{row.rank}</span>
 							</div>
 						</td>
@@ -758,10 +851,12 @@
 							onfocusin={(e) => showModelTip(e, row)}
 							onfocusout={hideModelTip}
 						>
-							<ModelCellName model={row.model} />
-							{#if summary.paretoModels?.has(row.model.name)}
-								<span class="pareto-tag">Pareto</span>
-							{/if}
+							<ModelCellName
+								model={row.model}
+								experiments={row.experiments}
+								requiredModalities={benchmarkModalities}
+								pareto={summary.paretoModels?.has(rid) ?? false}
+							/>
 						</th>
 						<td class="tbl-num param-cell" data-model-type={row.model.modelType}>
 							{fmtParamsValue(row.totalParamsB)}{#if fmtParamsUnit(row.totalParamsB)}<span
@@ -842,6 +937,22 @@
 								</td>
 							{/each}
 						{/if}
+						{#if showCustomGroups}
+							{#each summary.customGroupings ?? [] as dim (dim.name)}
+								{@const bw = customGroupBests.get(dim.name)}
+								{#each dim.groups as g (g.label)}
+									{@const v = row.scoresByCustomGroup?.[dim.name]?.[g.label]}
+									{@const cgWorst = bw?.worst[g.label] ?? Infinity}
+									{@const cgBest = bw?.best[g.label] ?? -Infinity}
+									<td
+										class="tbl-num {heat(v, cgWorst, cgBest)}"
+										class:tbl-best={v !== undefined && v === cgBest}
+									>
+										{v !== undefined ? fmtPct(v) : ''}
+									</td>
+								{/each}
+							{/each}
+						{/if}
 					</tr>
 				{/each}
 			</tbody>
@@ -880,6 +991,24 @@
 	.summary-table {
 		width: 100%;
 	}
+	/* Dimension label cell (e.g. "Memory Type") grouping a set of columns
+	   under one name — sits in the main header row's trailing edge, colspan
+	   over its group columns, with a bottom border removed so it visually
+	   merges into the sub-header row of individual group columns beneath it
+	   (`.cg-subhead`). Every other header cell in this row uses `rowspan`
+	   instead of a matching cell here, so this second row only ever adds
+	   height above the aggregated columns, not the whole table. */
+	.cg-dim-head {
+		padding: 6px 12px 2px;
+		text-align: center;
+		vertical-align: bottom;
+		border-bottom: none;
+		font-weight: 600;
+		font-size: 12px;
+		color: var(--text-muted);
+		background: var(--surface-muted);
+		white-space: nowrap;
+	}
 	/* Tooltip shell + title styles live in HoverPortal.svelte. We only
 	   own the column-tip body wrapper so MarkdownText output (links,
 	   spans, etc.) sits as a block under the title. */
@@ -899,24 +1028,6 @@
 	}
 	.has-tip :global(.tbl-model-link:hover) {
 		text-decoration-color: var(--link);
-	}
-	/* Inline after the model name so it wraps with long names instead of
-	   widening the fixed-width sticky column. Green, not blue, so it doesn't
-	   blend into the dense-model name tint beside it. */
-	.pareto-tag {
-		display: inline-block;
-		margin-left: 6px;
-		padding: 0 6px;
-		border-radius: 999px;
-		background: var(--tint-green);
-		color: var(--tint-green-fg);
-		font-size: 10px;
-		font-weight: 700;
-		letter-spacing: 0.04em;
-		line-height: 16px;
-		text-transform: uppercase;
-		vertical-align: 1px;
-		white-space: nowrap;
 	}
 	.sort-btn {
 		all: unset;

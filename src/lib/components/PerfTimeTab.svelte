@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { BenchmarkSummary } from '$lib/types';
 	import { TIME_FRONTIER_COLOR, performanceOverTimePlot } from '$lib/charts/figures';
-	import { fmtPct } from '$lib/format';
+	import { experimentLabel, fmtPct, rowId } from '$lib/format';
 	import { datedRows, recordSetters } from '$lib/pareto';
 	import { pinnedModels } from '$lib/stores/pinned.svelte';
 	import FrontierChart from './FrontierChart.svelte';
@@ -15,8 +15,10 @@
 	// right along the chart.
 	let items = $derived(
 		recordSetters(datedRows(summary.rows)).map((r) => ({
+			id: rowId(r),
 			name: r.model.name,
 			displayName: r.model.displayName,
+			variant: experimentLabel(r.experiments),
 			modelType: r.model.modelType,
 			detail: fmtPct(r.meanTask),
 			meta: r.model.releaseDate

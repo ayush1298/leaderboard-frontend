@@ -1,4 +1,5 @@
 import type { SummaryRow } from '$lib/types';
+import { rowId } from '$lib/format';
 
 /**
  * Pareto frontier over (active parameters ↓, Mean (Task) ↑) — the same two
@@ -10,7 +11,9 @@ import type { SummaryRow } from '$lib/types';
  * partial-coverage rows with a `null` mean) can't be placed, so they are
  * neither on the frontier nor able to dominate anything.
  *
- * Returns the frontier's `model.name`s — the same key `pinnedModels` uses.
+ * Returns the frontier rows' `rowId`s — the same key `pinnedModels` uses —
+ * so each experiment variant is placed on its own, not merged with the base
+ * model that shares its `model.name`.
  */
 export function paretoFrontier(rows: readonly SummaryRow[]): Set<string> {
 	const eligible = rows.filter(isParetoEligible);
@@ -27,7 +30,7 @@ export function paretoFrontier(rows: readonly SummaryRow[]): Set<string> {
 		const groupBest = eligible[i].meanTask;
 		for (; i < eligible.length && eligible[i].activeParamsB === size; i++) {
 			const r = eligible[i];
-			if (r.meanTask === groupBest && r.meanTask > bestSmaller) out.add(r.model.name);
+			if (r.meanTask === groupBest && r.meanTask > bestSmaller) out.add(rowId(r));
 		}
 		bestSmaller = Math.max(bestSmaller, groupBest);
 	}
@@ -77,5 +80,5 @@ export function paretoStatus(
 	frontier: ReadonlySet<string> | undefined
 ): boolean | null {
 	if (!frontier || !isParetoEligible(row)) return null;
-	return frontier.has(row.model.name);
+	return frontier.has(rowId(row));
 }
